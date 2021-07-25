@@ -1,0 +1,179 @@
+#! /usr/bin/env python3
+# hrut: How aRe yoU Today, work percentage recommender
+# Asks how you are and tries to be gentle, but keeps a moving average to make sure things don't slip out of control (cca 9 days)
+# Data format: (m,recwl)        (= moving average, recommended workload)
+# Notice: [task] cannot be called hrut. This is a copy-to task by all, and hrut without option pulls this up.
+# hrut [task] to print actual workload (in percent)
+# hrut to print the last updated workload (in percent)
+# hrut -u [task] to ask how are you and recommend workload
+# hrut -p [task] to give a random Bernoulli(workload) variable
+# hrut -p to give a random Bernoulli(workload) variable based on last updated workload
+
+import sys,os,stat,pickle,time,math
+
+dname=os.path.expanduser('~/.hrut')
+fullhpname=dname+'/hrut.pkl'
+
+# Check if two arguments are given
+lgt=len(sys.argv)
+if lgt > 3:
+ print('Usage: hrut [-p, -u] [task]')
+ exit(1)
+
+# Sort cases
+if lgt == 3:
+# Check if first argument is a valid option
+ opt=sys.argv[1]
+ if opt not in ['-u', '-p']:
+  print('Usage: hrut [-p. -u] [task].\nOptions are either -u (ask and update), -p (for Bernoulli) or none')
+  exit(1)
+ else:
+# Get project name and the paths
+  fname=sys.argv[2]
+  if fname == "hrut" and opt in ['-u']:
+   print('Task cannot be named hrut.')
+   exit(1)
+
+if lgt == 2:
+# Check if first argument is a valid option
+ opt=sys.argv[1]
+ if opt in ['-u']:
+  print('Usage: hrut [-p. -u] [task].\nOptions are either -u (ask and update), -p (for Bernoulli) or none')
+  exit(1)
+ if opt in ['-p']:
+  fname='hrut'
+ else:
+  fname=opt
+
+if lgt == 1:
+ fname='hrut'
+ opt=""
+
+fullpname=dname+'/'+fname+'.pkl'
+fullhname=dname+'/'+fname+'.txt'
+
+if opt in ['-u']:
+
+# Create dir if not present
+ if not os.path.isdir(dname):
+  print('Creating', dname)
+  os.makedirs(dname)
+  os.chmod(dname, stat.S_IRWXU)
+
+# Create history file if not present
+ if not os.path.isfile(fullhname):
+  print('Creating', fullhname)
+
+# Write to history file
+  i=open(fullhname, 'w')
+  towrite=time.strftime("%Y.%m.%d %a, %H:%M:%S")+' initialized with values 110\n'
+  i.write(towrite)
+  i.close
+
+# Create file if not present
+ if not os.path.isfile(fullpname):
+  print('Creating', fullpname, ', come back for advice.')
+
+# Write data out to pkl file
+  data=[110, 110]  #Notice 110 is a fixoint at h=4 so let's initialise like that.
+
+  p=open(fullpname, 'wb')
+  pickle.dump(data, p)
+  p.close
+
+# Also create central pkl file
+  p=open(fullhpname, 'wb')
+  pickle.dump(data, p)
+  p.close
+
+  exit(0)
+
+# Under the -u option, ask and refresh.
+# Ask how are you
+ while True:
+  inp=input('How are you today? 1: leave me alone ... 5: up for all challenges ')
+  try:
+   h=int(inp)
+   if 1 <= h <= 5:
+    break
+   else:
+    print('Please enter an integer from 1 to 5.')
+  except ValueError:
+   print('Please enter an integer from 1 to 5.')
+
+# Open file and get numbers
+
+ if os.path.isfile(fullpname):
+  f=open(fullpname, 'rb')
+  data=pickle.load(f)
+  f.close
+  m=data[0]
+
+ else:
+  print('File', fullpname, 'doesn\'t exist.')
+
+# Now do the math
+# Workload factor if h=1. It's exponential with 100 at 100, 1 at 105 and 0 at infty.
+ wa=100*math.exp((100-m)*0.92103)
+
+# Workload factor if h=5. It's exponential with 150 at 100, 120 at 110 and 110 at 120.
+ wb=45*math.exp((100-m)*0.10986)+105
+
+# A combining weight of the above. It's 0 at 1, 11/12 at 4 and 1 at 5.
+ p=1.103023-1.99526*math.exp(-0.59272*h)
+
+# The final workload to output. 110 should be a fixpoint of the whole thing at h=4.
+ w=p*(wb-wa)+wa
+
+# Refresh the moving average
+ newm=0.985*m+0.015*w
+
+# Write data
+ data=[0.0, 0.0]
+ data[0]=newm
+ data[1]=w
+
+ p=open(fullpname, 'wb')
+ pickle.dump(data, p)
+ p.close
+
+# Also create central pkl file
+ p=open(fullhpname, 'wb')
+ pickle.dump(data, p)
+ p.close
+ 
+# Write to history file
+ i=open(fullhname, 'a')
+ towrite=time.strftime("%Y.%m.%d %a, %H:%M:%S")+' how: '+str(h)+' mav: '+str(newm)+', recommended: '+str(w)+'\n'
+ i.write(towrite)
+ i.close
+ 
+# Cat history file
+ i=open(fullhname, 'r')
+ print(i.read())
+ i.close
+
+# Print conclusion
+ print('Recommended % today: ', int(w))
+
+# if no -u option given then just read recommended workload (recwl) from file if exists.
+else:
+ if os.path.isfile(fullpname):
+  f=open(fullpname, 'rb')
+  data=pickle.load(f)
+  f.close
+  recwl=data[1]
+  if opt in ['-p']:
+   import random
+   r=random.random()*100
+   i=int(recwl)
+   #print(r, '/', i)
+   if i>r:
+    print('1')
+   else:
+    print('0')
+  else:
+   print(int(recwl))
+ else:
+  print('File', fullpname, 'doesn\'t exist.')
+
