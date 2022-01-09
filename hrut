@@ -8,6 +8,10 @@
 # hrut -u [task] to ask how are you and recommend workload
 # hrut -p [task] to give a random Bernoulli(workload) variable
 # hrut -p to give a random Bernoulli(workload) variable based on last updated workload
+# hrut -a [task] to directly adjust the moving average.
+
+# Weight of new entry in moving average. Do not change as it's delicately calibrated with other parameters.
+mavw=0.015
 
 import sys,os,stat,pickle,time,math
 
@@ -17,15 +21,15 @@ fullhpname=dname+'/hrut.pkl'
 # Check if two arguments are given
 lgt=len(sys.argv)
 if lgt > 3:
- print('Usage: hrut [-p, -u] [task]')
+ print('Usage: hrut [-p, -u, -a] [task]')
  exit(1)
 
 # Sort cases
 if lgt == 3:
 # Check if first argument is a valid option
  opt=sys.argv[1]
- if opt not in ['-u', '-p']:
-  print('Usage: hrut [-p. -u] [task].\nOptions are either -u (ask and update), -p (for Bernoulli) or none')
+ if opt not in ['-u', '-p', '-a']:
+  print('Usage: hrut [-p, -u, -a] [task].\nOptions are either -u (ask and update), -p (for Bernoulli), -a (adjust moving average) or none')
   exit(1)
  else:
 # Get project name and the paths
@@ -37,8 +41,8 @@ if lgt == 3:
 if lgt == 2:
 # Check if first argument is a valid option
  opt=sys.argv[1]
- if opt in ['-u']:
-  print('Usage: hrut [-p. -u] [task].\nOptions are either -u (ask and update), -p (for Bernoulli) or none')
+ if opt in ['-u', '-c']:
+  print('Usage: hrut [-p, -u, -a] [task].\nOptions are either -u (ask and update), -p (for Bernoulli), -a (adjust moving average) or none')
   exit(1)
  if opt in ['-p']:
   fname='hrut'
@@ -52,7 +56,100 @@ if lgt == 1:
 fullpname=dname+'/'+fname+'.pkl'
 fullhname=dname+'/'+fname+'.txt'
 
-if opt in ['-u']:
+# Now define the math
+def wkld(m,h):
+
+# Notice the algorithm does stupid things for m outside the 100...150 range.
+ if m<100:
+  base=100
+ elif m>150:
+  base=150
+ else:
+  base=m
+  
+# Workload factor if h=1. It's exponential with 100 at 100, 1 at 105 and 0 at infty.
+ wa=100*math.exp((100-base)*0.92103)
+
+# Workload factor if h=5. It's exponential with 150 at 100, 120 at 110 and 110 at 120.
+ wb=45*math.exp((100-base)*0.10986)+105
+
+# A combining weight of the above. It's 0 at 1, 11/12 at 4 and 1 at 5.
+ p=1.103023-1.99526*math.exp(-0.59272*h)
+
+# The final workload to output. 110 should be a fixpoint of the whole thing at h=4.
+ w=p*(wb-wa)+wa
+ return w
+
+# Start doing things
+# Option -a just adjusts the moving average
+if opt in ['-a']:
+
+# Open file and get numbers
+
+ if os.path.isfile(fullpname):
+  f=open(fullpname, 'rb')
+  data=pickle.load(f)
+  f.close
+  m=data[0]
+  lastreccd=data[1]
+# Moving average = m = (1-mavw)*oldm+mavw*lastreccd, so let's undo this
+  oldm=(m-mavw*lastreccd)/(1-mavw)
+  print('1\t 2\t 3\t 4\t 5')
+  print(int(wkld(oldm,1)),'%\t',int(wkld(oldm,2)),'%\t',int(wkld(oldm,3)),'%\t',int(wkld(oldm,4)),'%\t',int(wkld(oldm,5)),'%')
+  print('The percentage was:',int(lastreccd))
+  while True:
+   inp=input('Enter what percent you accomplished: ')
+   try:
+    apct=int(inp)
+    if 0 <= apct:
+     if apct>200:
+      print(apct,'looks unreasonable. Are you sure?')
+      inp=input('Type y [enter]' )
+      if inp == 'y':
+       break
+     else:
+      break
+    else:
+     print('Please enter a non-negative integer.')
+   except ValueError:
+    print('Please enter a non-negative integer.')
+# Calculate new moving average
+  newm=(1-mavw)*oldm+mavw*apct
+
+# Write data
+  data=[0.0, 0.0]
+  data[0]=newm
+  data[1]=apct
+ 
+  p=open(fullpname, 'wb')
+  pickle.dump(data, p)
+  p.close
+ 
+# Also create central pkl file
+  p=open(fullhpname, 'wb')
+  pickle.dump(data, p)
+  p.close
+  
+# Write to history file
+  i=open(fullhname, 'a')
+  towrite=time.strftime("%Y.%m.%d %a, %H:%M:%S")+' adj mav: '+str(newm)+' by direct input '+str(apct)+'\n'
+  i.write(towrite)
+  i.close
+  
+# Cat history file
+  i=open(fullhname, 'r')
+  print(i.read())
+  i.close
+ 
+# Print conclusion
+  print('Adjusted achievement from', int(lastreccd), 'to', int(apct))
+
+ else:
+  print('File', fullpname, 'doesn\'t exist.')
+  exit(1)
+
+# Option -u asks and updates
+elif opt in ['-u']:
 
 # Create dir if not present
  if not os.path.isdir(dname):
@@ -89,18 +186,6 @@ if opt in ['-u']:
   exit(0)
 
 # Under the -u option, ask and refresh.
-# Ask how are you
- while True:
-  inp=input('How are you today? 1: leave me alone ... 5: up for all challenges ')
-  try:
-   h=int(inp)
-   if 1 <= h <= 5:
-    break
-   else:
-    print('Please enter an integer from 1 to 5.')
-  except ValueError:
-   print('Please enter an integer from 1 to 5.')
-
 # Open file and get numbers
 
  if os.path.isfile(fullpname):
@@ -112,26 +197,29 @@ if opt in ['-u']:
  else:
   print('File', fullpname, 'doesn\'t exist.')
 
-# Now do the math
-# Workload factor if h=1. It's exponential with 100 at 100, 1 at 105 and 0 at infty.
- wa=100*math.exp((100-m)*0.92103)
 
-# Workload factor if h=5. It's exponential with 150 at 100, 120 at 110 and 110 at 120.
- wb=45*math.exp((100-m)*0.10986)+105
-
-# A combining weight of the above. It's 0 at 1, 11/12 at 4 and 1 at 5.
- p=1.103023-1.99526*math.exp(-0.59272*h)
-
-# The final workload to output. 110 should be a fixpoint of the whole thing at h=4.
- w=p*(wb-wa)+wa
+# Ask how are you
+ print('How are you today?')
+ print('1\t 2\t 3\t 4\t 5')
+ print(int(wkld(m,1)),'%\t',int(wkld(m,2)),'%\t',int(wkld(m,3)),'%\t',int(wkld(m,4)),'%\t',int(wkld(m,5)),'%')
+ while True:
+  inp=input('1: leave me alone ... 5: up for all challenges ')
+  try:
+   h=int(inp)
+   if 1 <= h <= 5:
+    break
+   else:
+    print('Please enter an integer from 1 to 5.')
+  except ValueError:
+   print('Please enter an integer from 1 to 5.')
 
 # Refresh the moving average
- newm=0.985*m+0.015*w
+ newm=(1-mavw)*m+mavw*wkld(m,h)
 
 # Write data
  data=[0.0, 0.0]
  data[0]=newm
- data[1]=w
+ data[1]=wkld(m,h)
 
  p=open(fullpname, 'wb')
  pickle.dump(data, p)
@@ -144,7 +232,7 @@ if opt in ['-u']:
  
 # Write to history file
  i=open(fullhname, 'a')
- towrite=time.strftime("%Y.%m.%d %a, %H:%M:%S")+' how: '+str(h)+' mav: '+str(newm)+', recommended: '+str(w)+'\n'
+ towrite=time.strftime("%Y.%m.%d %a, %H:%M:%S")+' how: '+str(h)+' mav: '+str(newm)+', recommended: '+str(wkld(m,h))+'\n'
  i.write(towrite)
  i.close
  
@@ -154,9 +242,9 @@ if opt in ['-u']:
  i.close
 
 # Print conclusion
- print('Recommended % today: ', int(w))
+ print('Recommended % today: ', int(wkld(m,h)))
 
-# if no -u option given then just read recommended workload (recwl) from file if exists.
+# if no -u or -a option given then just read recommended workload (recwl) from file if exists.
 else:
  if os.path.isfile(fullpname):
   f=open(fullpname, 'rb')

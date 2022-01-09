@@ -42,4 +42,12 @@ hrut -p
 
 for the latest task will generate a random 0 or 1 number with probability equals the recommended workload (capped at 100% of course). This is handy if you have many small tasks you'd normally do but want to ease those on bad days. I'm using this for various daily tasks and also in my url opener `cli_view_edit/lowo`.
 
+If you find you could not accomplish the recommended work, you can adjust the log of your daily performance by
+
+```
+hrut -a [task name]
+```
+
+hence keeping the logging accurate.
+
 I'm no programmer, so please don't blame me on the quality of the code. :-) Licensed under GNU GPLv3.
