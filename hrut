@@ -77,7 +77,10 @@ def wkld(m,h):
  p=1.103023-1.99526*math.exp(-0.59272*h)
 
 # The final workload to output. 110 should be a fixpoint of the whole thing at h=4.
- w=p*(wb-wa)+wa
+ if h > 0:
+  w=p*(wb-wa)+wa
+ else:
+  w=0
  return w
 
 # Start doing things
@@ -200,18 +203,18 @@ elif opt in ['-u']:
 
 # Ask how are you
  print('How are you today?')
- print('1\t 2\t 3\t 4\t 5')
- print(int(wkld(m,1)),'%\t',int(wkld(m,2)),'%\t',int(wkld(m,3)),'%\t',int(wkld(m,4)),'%\t',int(wkld(m,5)),'%')
+ print('0\t 1\t 2\t 3\t 4\t 5')
+ print('0%\t',int(wkld(m,1)),'%\t',int(wkld(m,2)),'%\t',int(wkld(m,3)),'%\t',int(wkld(m,4)),'%\t',int(wkld(m,5)),'%')
  while True:
-  inp=input('1: leave me alone ... 5: up for all challenges ')
+  inp=input('0: emergency, 1: leave me alone ... 5: up for all challenges ')
   try:
    h=int(inp)
-   if 1 <= h <= 5:
+   if 0 <= h <= 5:
     break
    else:
-    print('Please enter an integer from 1 to 5.')
+    print('Please enter an integer from 0 to 5.')
   except ValueError:
-   print('Please enter an integer from 1 to 5.')
+   print('Please enter an integer from 0 to 5.')
 
 # Refresh the moving average
  newm=(1-mavw)*m+mavw*wkld(m,h)
